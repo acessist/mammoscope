@@ -2,7 +2,7 @@
 
 A local Python desktop application for exploratory BI-RADS 1–5 classification of low-energy CDD-CESM mammograms. Upload an image, confirm its modality, and view the model prediction and five class scores. Images are processed locally.
 
-**Research only. This model is not clinically validated and must not be used for diagnosis or treatment. Scores are not cancer probabilities. Ordinary photos, ultrasound and MRI are outside its scope.** See RESULTS.md for measured performance; 90% accuracy has not been demonstrated.
+**Research only. This model is not clinically validated and must not be used for diagnosis or treatment. Scores are not cancer probabilities. Ordinary photos, ultrasound and MRI are outside its scope.** See RESULTS.md for measured performance.
 
 ## Run on this computer
 
