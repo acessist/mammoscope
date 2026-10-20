@@ -1,0 +1,15 @@
+.venv/
+.temp/
+__pycache__/
+*.py[cod]
+*.log
+*.zip
+*.keras
+*.h5
+*.xlsx
+data/cdd_cesm/images/
+data/cdd_cesm/annotations.json
+**/data_audit.json
+examples/*.jpg
+examples/*.png
+research_result.json

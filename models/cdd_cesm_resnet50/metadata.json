@@ -1,0 +1,144 @@
+{
+  "schema": 1,
+  "trained": true,
+  "labels": [
+    "BI-RADS 1",
+    "BI-RADS 2",
+    "BI-RADS 3",
+    "BI-RADS 4",
+    "BI-RADS 5"
+  ],
+  "preprocessing": "opencv_grayscale_resize_linear_224_float32_div255_v1",
+  "architecture": "resnet50_imagenet_frozen_dense128_dropout05",
+  "clinical_validated": false,
+  "seed": 42,
+  "epochs_requested": 40,
+  "batch_size": 16,
+  "best_epoch": 6,
+  "selection": "minimum validation loss",
+  "optimizer": "Adam",
+  "learning_rate": 0.0003,
+  "class_weights": {
+    "0": 0.49162995594713654,
+    "1": 1.1387755102040817,
+    "2": 1.8915254237288135,
+    "3": 1.0238532110091743,
+    "4": 1.716923076923077
+  },
+  "tensorflow": "2.20.0",
+  "python": "3.12.14",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "devices": [
+    "/physical_device:CPU:0"
+  ],
+  "training_seconds": 59.59300000000076,
+  "model_sha256": "8bd0c6d27df4787ef4e820c5f3deaf1b9d0dcf3eb65b058b17cec8b446c28acf",
+  "manifest_sha256": "ba86abe42fb74f8bb8e5093c9b3e3b24f45d0286c8c9386645bc898837754c89",
+  "metrics": {
+    "test_loss": 1.4977116584777832,
+    "test_accuracy": 0.3368983864784241,
+    "balanced_accuracy": 0.29641106020416363,
+    "majority_baseline_accuracy": 0.39572192513368987,
+    "confusion_matrix": [
+      [
+        37,
+        6,
+        20,
+        4,
+        7
+      ],
+      [
+        12,
+        3,
+        10,
+        3,
+        8
+      ],
+      [
+        6,
+        4,
+        6,
+        2,
+        4
+      ],
+      [
+        9,
+        1,
+        8,
+        7,
+        4
+      ],
+      [
+        5,
+        0,
+        8,
+        3,
+        10
+      ]
+    ],
+    "classification_report": {
+      "BI-RADS 1": {
+        "precision": 0.5362318840579711,
+        "recall": 0.5,
+        "f1-score": 0.5174825174825175,
+        "support": 74.0
+      },
+      "BI-RADS 2": {
+        "precision": 0.21428571428571427,
+        "recall": 0.08333333333333333,
+        "f1-score": 0.12,
+        "support": 36.0
+      },
+      "BI-RADS 3": {
+        "precision": 0.11538461538461539,
+        "recall": 0.2727272727272727,
+        "f1-score": 0.16216216216216217,
+        "support": 22.0
+      },
+      "BI-RADS 4": {
+        "precision": 0.3684210526315789,
+        "recall": 0.2413793103448276,
+        "f1-score": 0.2916666666666667,
+        "support": 29.0
+      },
+      "BI-RADS 5": {
+        "precision": 0.30303030303030304,
+        "recall": 0.38461538461538464,
+        "f1-score": 0.3389830508474576,
+        "support": 26.0
+      },
+      "accuracy": 0.33689839572192515,
+      "macro avg": {
+        "precision": 0.30747071387803654,
+        "recall": 0.29641106020416363,
+        "f1-score": 0.2860588794317608,
+        "support": 187.0
+      },
+      "weighted avg": {
+        "precision": 0.3662936100435336,
+        "recall": 0.33689839572192515,
+        "f1-score": 0.33932174607829463,
+        "support": 187.0
+      }
+    }
+  },
+  "counts": {
+    "train": 558,
+    "val": 186,
+    "test": 187
+  },
+  "patient_counts": {
+    "train": 190,
+    "val": 63,
+    "test": 63
+  },
+  "dataset": {
+    "name": "CDD-CESM v1 DM single-label subset",
+    "source": "https://www.cancerimagingarchive.net/collection/cdd-cesm/",
+    "used_images": 931,
+    "used_patients": 316,
+    "license": "CC BY 4.0",
+    "image_download_mirror": "https://www.kaggle.com/datasets/hanaraafatt/cdd-cesm/versions/1",
+    "preparation_report": "data/cdd_cesm/preparation_report.json"
+  }
+}

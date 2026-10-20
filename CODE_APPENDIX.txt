@@ -1,0 +1,986 @@
+MammoScope source appendix
+
+Read METHODS.md and RESULTS.md alongside this source.
+
+===== app.py =====
+"""Local desktop application. Images are processed on this computer."""
+from datetime import datetime
+import json
+import os
+from pathlib import Path
+import queue
+import threading
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+from PIL import Image, ImageOps, ImageTk
+from core import LABELS, load_bundle, predict, preprocess
+
+ROOT = Path(__file__).resolve().parent
+
+
+class App(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("MammoScope | BI-RADS research application")
+        self.geometry("1080x760")
+        self.minsize(900, 680)
+        self.configure(bg="#eef3f7")
+        self.model = self.meta = self.image_path = self.result = None
+        self.busy = False
+        self.events = queue.Queue()
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure("TFrame", background="#eef3f7")
+        style.configure("TLabel", background="#eef3f7", font=("Segoe UI", 10))
+        style.configure("TButton", font=("Segoe UI", 10), padding=(12, 8))
+        style.configure("Title.TLabel", font=("Segoe UI", 24, "bold"), foreground="#14354a")
+        style.configure("Result.TLabel", font=("Segoe UI", 18, "bold"), foreground="#176c78")
+        shell = ttk.Frame(self, padding=24)
+        shell.pack(fill="both", expand=True)
+        ttk.Label(shell, text="MammoScope", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(shell, text="CNN / ResNet50 • BI-RADS 1–5 • Local research application").pack(anchor="w", pady=(0, 12))
+        banner = tk.Label(shell, text="RESEARCH ONLY | Not clinically validated. Do not use for diagnosis or treatment decisions.",
+                          bg="#fff2d5", fg="#73511b", padx=12, pady=12, font=("Segoe UI", 10))
+        banner.pack(fill="x", pady=(0, 14))
+        self.tabs = ttk.Notebook(shell)
+        self.tabs.pack(fill="both", expand=True)
+        analysis, training, about = [ttk.Frame(self.tabs, padding=18) for _ in range(3)]
+        for frame, label in ((analysis, "  Image analysis  "), (training, "  Model training  "), (about, "  Methods and help  ")):
+            self.tabs.add(frame, text=label)
+        self.status = tk.StringVar(value="No model loaded. Load a trained model to enable predictions.")
+        ttk.Label(analysis, textvariable=self.status, wraplength=940).pack(anchor="w", pady=(0, 12))
+        toolbar = ttk.Frame(analysis)
+        toolbar.pack(fill="x")
+        self.load_button = ttk.Button(toolbar, text="Load model folder", command=self.choose_model)
+        self.load_button.pack(side="left", padx=(0, 8))
+        self.image_button = ttk.Button(toolbar, text="Upload image", command=self.choose_image)
+        self.image_button.pack(side="left", padx=(0, 8))
+        self.predict_button = ttk.Button(toolbar, text="Predict", command=self.run_prediction, state="disabled")
+        self.predict_button.pack(side="left", padx=(0, 8))
+        self.export_button = ttk.Button(toolbar, text="Save result", command=self.export_result, state="disabled")
+        self.export_button.pack(side="left")
+        columns = ttk.Frame(analysis)
+        columns.pack(fill="both", expand=True, pady=18)
+        self.preview = tk.Label(columns, text="Upload a mammogram\nPNG / JPG / JPEG / BMP", bg="#dfe8ee", fg="#587080", width=42)
+        self.preview.pack(side="left", fill="both", expand=True, padx=(0, 24))
+        results = ttk.Frame(columns, width=400)
+        results.pack(side="left", fill="both", expand=True)
+        self.result_label = ttk.Label(results, text="No prediction yet", style="Result.TLabel")
+        self.result_label.pack(anchor="w", pady=(0, 12))
+        self.score_vars, self.bars = [], []
+        for label in LABELS:
+            var = tk.StringVar(value=f"{label}   —")
+            ttk.Label(results, textvariable=var).pack(anchor="w", pady=(6, 3))
+            bar = ttk.Progressbar(results, maximum=1)
+            bar.pack(fill="x")
+            self.score_vars.append(var)
+            self.bars.append(bar)
+        ttk.Label(results, text="Scores describe model outputs; they are not cancer probabilities.\nNot intended for ordinary photos, ultrasound or MRI.\nThe application cannot verify that an image is a mammogram.",
+                  wraplength=390).pack(anchor="w", pady=14)
+        self.confirmed = tk.BooleanVar(value=False)
+        ttk.Checkbutton(analysis, text="This is a de-identified mammogram of the same modality as the training data.",
+                        variable=self.confirmed, command=self.refresh).pack(anchor="w")
+        ttk.Label(training, text="1. Select a labeled CSV manifest  →  2. Validate  →  3. Train", font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(0, 12))
+        ttk.Label(training, text="CSV: path,birads,patient_id,split • Classes: 1–5 • Splits: train, val, test\nEach split must include every class. Patients must not overlap across splits.").pack(anchor="w")
+        row = ttk.Frame(training)
+        row.pack(fill="x", pady=12)
+        self.manifest = tk.StringVar(value=str(ROOT / "data" / "manifest.csv"))
+        ttk.Entry(row, textvariable=self.manifest).pack(side="left", fill="x", expand=True)
+        ttk.Button(row, text="Select CSV", command=self.choose_manifest).pack(side="left", padx=8)
+        options = ttk.Frame(training)
+        options.pack(fill="x")
+        self.architecture = tk.StringVar(value='ResNet50')
+        chooser = ttk.Combobox(options, textvariable=self.architecture, values=['ResNet50', 'Paper CNN'], state='readonly', width=12)
+        chooser.pack(side='left', padx=(0,8))
+        chooser.bind('<<ComboboxSelected>>', lambda event: self.epochs.set('40' if self.architecture.get() == 'ResNet50' else '10'))
+        ttk.Label(options, text="Epoch:").pack(side="left")
+        self.epochs = tk.StringVar(value="40")
+        ttk.Spinbox(options, from_=1, to=200, textvariable=self.epochs, width=5).pack(side="left", padx=8)
+        self.validate_button = ttk.Button(options, text="Validate data", command=self.validate_data)
+        self.validate_button.pack(side="left", padx=8)
+        self.train_button = ttk.Button(options, text="Start training", command=self.start_training)
+        self.train_button.pack(side="left")
+        self.log_box = tk.Text(training, height=14, bg="#132f41", fg="#e5f1f4", font=("Consolas", 10), wrap="word", state="disabled")
+        self.log_box.pack(fill="both", expand=True, pady=(14, 0))
+        self.append_log("See data/cdd_cesm/preparation_report.json for data preparation and RESULTS.md for experiment results.")
+        info = tk.Text(about, wrap="word", font=("Segoe UI", 11), bg="#eef3f7", relief="flat")
+        info.pack(fill="both", expand=True)
+        info.insert("1.0", (ROOT / "README.md").read_text(encoding="utf-8"))
+        info.configure(state="disabled")
+        ttk.Label(shell, text="Images stay on your computer. Predictions require a trained model.", foreground="#597181").pack(anchor="w", pady=(12, 0))
+        self.protocol("WM_DELETE_WINDOW", self.close)
+        self.after(100, self.poll)
+        self.after(250, self.load_default)
+
+    def load_default(self):
+        active = ROOT / 'models' / 'active_model.json'
+        folder = 'cdd_cesm_cnn'
+        if active.is_file():
+            try:
+                folder = json.loads(active.read_text(encoding='utf-8'))['folder']
+                if Path(folder).name != folder:
+                    raise ValueError('Invalid model folder')
+            except (ValueError, KeyError):
+                self.status.set('Invalid default model configuration; use Load model folder.')
+                return
+        path = ROOT / 'models' / folder
+        if (path / 'metadata.json').is_file():
+            self.status.set('Loading the default model…')
+            self.work(lambda: load_bundle(path), self.model_ready)
+
+    def append_log(self, text):
+        self.log_box.configure(state="normal")
+        self.log_box.insert("end", text + "\n")
+        self.log_box.see("end")
+        self.log_box.configure(state="disabled")
+
+    def refresh(self):
+        for button in (self.load_button, self.image_button, self.validate_button, self.train_button):
+            button.configure(state="disabled" if self.busy else "normal")
+        ready = self.model is not None and self.image_path is not None and self.confirmed.get() and not self.busy
+        self.predict_button.configure(state="normal" if ready else "disabled")
+        self.export_button.configure(state="normal" if self.result and not self.busy else "disabled")
+
+    def clear_result(self):
+        self.result = None
+        self.result_label.configure(text="No prediction yet")
+        for label, var, bar in zip(LABELS, self.score_vars, self.bars):
+            var.set(label + "   —")
+            bar["value"] = 0
+        self.refresh()
+
+    def work(self, fn, done):
+        if self.busy:
+            return
+        self.busy = True
+        self.refresh()
+        def worker():
+            try:
+                self.events.put(("done", done, fn()))
+            except Exception as error:
+                self.events.put(("error", str(error)))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def poll(self):
+        try:
+            while True:
+                event = self.events.get_nowait()
+                if event[0] == "log":
+                    self.append_log(event[1])
+                elif event[0] == "error":
+                    self.busy = False
+                    if self.model is None:
+                        self.status.set("No model loaded. A valid training bundle is required.")
+                    self.append_log("ERROR: " + event[1])
+                    messagebox.showerror("Operation failed", event[1])
+                    self.refresh()
+                else:
+                    self.busy = False
+                    event[1](event[2])
+                    self.refresh()
+        except queue.Empty:
+            pass
+        self.after(100, self.poll)
+
+    def choose_manifest(self):
+        path = filedialog.askopenfilename(filetypes=[("CSV", "*.csv")])
+        if path:
+            self.manifest.set(path)
+
+    def choose_model(self):
+        path = filedialog.askdirectory(title="Select a trusted model bundle created with this application", initialdir=ROOT / "models")
+        if path:
+            self.model = self.meta = None
+            self.status.set("Loading model…")
+            self.clear_result()
+            self.work(lambda: load_bundle(path), self.model_ready)
+
+    def model_ready(self, bundle):
+        self.model, self.meta = bundle
+        metrics = self.meta.get('metrics', {})
+        acc = metrics.get('test_accuracy')
+        accuracy_text = f" • Held-out test accuracy: {100*acc:.1f}%" if acc is not None else ''
+        family = 'ResNet50' if 'resnet50' in self.meta.get('architecture','') else 'CNN'
+        self.status.set(f"{family} ready • BI-RADS 1–5" + accuracy_text + " • Limited performance; no clinical validation")
+        self.clear_result()
+
+    def choose_image(self):
+        path = filedialog.askopenfilename(initialdir=ROOT / 'examples', filetypes=[("Image", "*.png *.jpg *.jpeg *.bmp")])
+        if not path:
+            return
+        self.clear_result()
+        try:
+            preprocess(path)
+            with Image.open(path) as source:
+                image = ImageOps.contain(source.convert("RGB"), (390, 310))
+            self.photo = ImageTk.PhotoImage(image)
+            self.preview.configure(image=self.photo, text="", width=390)
+            self.image_path = path
+            self.confirmed.set(False)
+        except Exception as error:
+            self.image_path = None
+            self.preview.configure(image="", text="Upload imagenemedi")
+            messagebox.showerror("Invalid image", str(error))
+        self.refresh()
+
+    def run_prediction(self):
+        if self.model is None or not self.image_path or not self.confirmed.get() or self.busy:
+            return
+        self.clear_result()
+        self.work(lambda: predict(self.model, self.image_path), self.show_result)
+
+    def show_result(self, result):
+        self.result = result | {"model_sha256": self.meta["model_sha256"],
+                                "test_metrics": self.meta.get('metrics'),
+                                "created_local": datetime.now().astimezone().isoformat()}
+        self.result_label.configure(text="Model prediction: " + result["label"])
+        for label, var, bar in zip(LABELS, self.score_vars, self.bars):
+            score = result["scores"][label]
+            var.set(f"{label}    {score * 100:.2f}%")
+            bar["value"] = score
+
+    def export_result(self):
+        if not self.result:
+            return
+        path = filedialog.asksaveasfilename(defaultextension=".json", initialfile="research_result.json", filetypes=[("JSON", "*.json")])
+        if path:
+            Path(path).write_text(json.dumps(self.result, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def validate_data(self):
+        from core import read_manifest
+        path = self.manifest.get()
+        self.work(lambda: read_manifest(path), lambda rows: self.append_log(
+            "Validation passed: " + str({s: sum(r['split'] == s for r in rows) for s in ('train', 'val', 'test')})))
+
+    def start_training(self):
+        try:
+            epochs = int(self.epochs.get())
+            if not 1 <= epochs <= 200:
+                raise ValueError()
+        except ValueError:
+            messagebox.showerror("Epoch", "Enter an integer from 1 to 200.")
+            return
+        path = self.manifest.get()
+        architecture = self.architecture.get()
+        output = ROOT / "models" / datetime.now().strftime("training_%Y%m%d_%H%M%S_%f")
+        def run():
+            if architecture == 'ResNet50':
+                from train_resnet import train_resnet
+                train_resnet(path, output, epochs, log=lambda text: self.events.put(("log", text)))
+            else:
+                from train import train
+                train(path, output, epochs=epochs, balanced=True, log=lambda text: self.events.put(("log", text)))
+            return load_bundle(output)
+        self.work(run, self.model_ready)
+
+    def close(self):
+        if self.busy:
+            if not messagebox.askyesno("Operation in progress", "Closing will interrupt the running operation. Close anyway?"):
+                return
+        self.destroy()
+
+
+if __name__ == "__main__":
+    App().mainloop()
+
+
+===== core.py =====
+"""Paper CNN architecture, shared preprocessing and verifiable model bundles."""
+import csv
+import hashlib
+import json
+import os
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+os.environ.setdefault("MPLCONFIGDIR", str(Path(__file__).resolve().parent / ".temp" / "matplotlib"))
+os.environ.setdefault("KERAS_HOME", str(Path(__file__).resolve().parent / ".temp" / "keras"))
+
+LABELS = [f"BI-RADS {i}" for i in range(1, 6)]
+PREPROCESS = "opencv_grayscale_resize_linear_224_float32_div255_v1"
+EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp"}
+
+
+def digest(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def preprocess(path):
+    path = Path(path)
+    if path.suffix.lower() not in EXTENSIONS:
+        raise ValueError("Use PNG, JPG, JPEG or BMP; DICOM is not supported.")
+    if path.stat().st_size > 30 * 1024 * 1024:
+        raise ValueError("Images must not exceed 30 MB.")
+    # imdecode supports Unicode file paths on Windows.
+    from PIL import Image
+    with Image.open(path) as image:
+        if image.width * image.height > 40_000_000:
+            raise ValueError("Image exceeds the 40 million pixel limit.")
+        if image.mode not in {"L", "RGB", "RGBA", "P"}:
+            raise ValueError("An 8-bit grayscale or RGB exported mammogram is required.")
+        image.verify()
+    image = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+    if image is None or min(image.shape) < 32:
+        raise ValueError("Image cannot be read or is smaller than 32 by 32 pixels.")
+    return (cv2.resize(image, (224, 224), interpolation=cv2.INTER_LINEAR)
+            .astype(np.float32) / 255.0)[..., None]
+
+
+def read_manifest(path):
+    """Validate labels, patient separation and duplicate images without skipping rows."""
+    path = Path(path).resolve()
+    with path.open(encoding="utf-8-sig", newline="") as stream:
+        reader = csv.DictReader(stream)
+        if not {"path", "birads", "patient_id", "split"}.issubset(reader.fieldnames or []):
+            raise ValueError("CSV columns: path,birads,patient_id,split")
+        raw = list(reader)
+    if not raw:
+        raise ValueError("CSV is empty. Add genuine expert-labeled data first.")
+    rows, patients, files, pixels = [], {}, set(), set()
+    for number, row in enumerate(raw, 2):
+        try:
+            label = int(row["birads"])
+            split = row["split"].strip().lower()
+            patient = row["patient_id"].strip()
+            image_path = (path.parent / row["path"].strip()).resolve()
+            if label not in range(1, 6) or split not in {"train", "val", "test"} or not patient:
+                raise ValueError("BI-RADS 1–5, a patient ID and a train/val/test split are required.")
+            if patient in patients and patients[patient] != split:
+                raise ValueError("A patient occurs in more than one split.")
+            patients[patient] = split
+            if image_path in files:
+                raise ValueError("The same file is listed more than once.")
+            files.add(image_path)
+            array = preprocess(image_path)
+            pixel_hash = hashlib.sha256(array.tobytes()).hexdigest()
+            if pixel_hash in pixels:
+                raise ValueError("Duplicate processed image detected.")
+            pixels.add(pixel_hash)
+            rows.append(dict(path=str(image_path), label=label - 1, patient_id=patient,
+                             split=split, sha256=digest(image_path)))
+        except Exception as error:
+            raise ValueError(f"CSV row {number}: {error}") from error
+    for split in ("train", "val", "test"):
+        present = {r["label"] for r in rows if r["split"] == split}
+        if present != set(range(5)):
+            raise ValueError(f"{split}: all five classes are required. Missing: "
+                             + ", ".join(LABELS[i] for i in sorted(set(range(5)) - present)))
+    return rows
+
+
+def build_model():
+    from tensorflow import keras
+    layers = keras.layers
+    model = keras.Sequential([
+        layers.Input(shape=(224, 224, 1)),
+        layers.Conv2D(32, 3, activation="relu"), layers.MaxPooling2D(2),
+        layers.Conv2D(64, 3, activation="relu"), layers.MaxPooling2D(2),
+        layers.Conv2D(128, 3, activation="relu"), layers.MaxPooling2D(2),
+        layers.Flatten(), layers.Dense(128, activation="relu"),
+        layers.Dense(5, activation="softmax"),
+    ], name="paper_cnn")
+    model.compile(optimizer=keras.optimizers.Adam(learning_rate=0.001),
+                  loss="sparse_categorical_crossentropy", metrics=["accuracy"])
+    return model
+
+
+def load_bundle(folder):
+    folder = Path(folder)
+    meta_path, model_path = folder / "metadata.json", folder / "model.keras"
+    if not meta_path.is_file() or not model_path.is_file():
+        raise ValueError("No trained model found. Create a model in the training tab.")
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if (meta.get("schema") != 1 or meta.get("labels") != LABELS
+            or meta.get("preprocessing") != PREPROCESS or meta.get("trained") is not True):
+        raise ValueError("Model label order or preprocessing is incompatible with the application.")
+    if meta.get("model_sha256") != digest(model_path):
+        raise ValueError("Model integrity check failed; files must belong to the same training run.")
+    from tensorflow import keras
+    model = keras.models.load_model(model_path, compile=False, safe_mode=True)
+    if model.input_shape != (None, 224, 224, 1) or model.output_shape != (None, 5):
+        raise ValueError("Expected model shape: (224,224,1) to 5 classes.")
+    return model, meta
+
+
+def predict(model, path):
+    scores = np.asarray(model(preprocess(path)[None, ...], training=False))[0]
+    if (scores.shape != (5,) or not np.isfinite(scores).all() or
+            (scores < 0).any() or (scores > 1).any() or not np.isclose(scores.sum(), 1, atol=1e-4)):
+        raise ValueError("The model did not produce valid softmax scores.")
+    return {"label": LABELS[int(np.argmax(scores))],
+            "scores": {label: float(score) for label, score in zip(LABELS, scores)},
+            "notice": "Research output; scores are not cancer probabilities or a clinical diagnosis."}
+
+
+===== train.py =====
+"""python train.py --manifest data/manifest.csv --output models/training_01"""
+import argparse
+from datetime import datetime, timezone
+import json
+import os
+import time
+import platform
+from pathlib import Path
+
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+import numpy as np
+from core import LABELS, PREPROCESS, build_model, digest, preprocess, read_manifest
+
+
+def train(manifest, output, epochs=10, batch_size=8, log=print, balanced=False):
+    started = time.monotonic()
+    if not 1 <= epochs <= 200 or not 1 <= batch_size <= 128:
+        raise ValueError("Epochs must be 1–200 and batch size 1–128.")
+    output = Path(output)
+    if output.exists() and any(output.iterdir()):
+        raise ValueError("Output folder must be empty; existing training runs are never overwritten.")
+    log("Validating labels, patient separation and images…")
+    rows = read_manifest(manifest)
+    import tensorflow as tf
+    from sklearn.metrics import classification_report, confusion_matrix, balanced_accuracy_score
+    tf.keras.utils.set_random_seed(42)
+    tf.config.experimental.enable_op_determinism()
+    output.mkdir(parents=True, exist_ok=True)
+    groups = {s: [r for r in rows if r["split"] == s] for s in ("train", "val", "test")}
+    log("Image counts: " + str({s: len(r) for s, r in groups.items()}))
+    log("These counts do not establish clinical validity. Test data are excluded from training.")
+
+    def dataset(split):
+        def generate():
+            for row in groups[split]:
+                yield preprocess(row["path"]), np.int32(row["label"])
+        ds = tf.data.Dataset.from_generator(generate, output_signature=(
+            tf.TensorSpec((224, 224, 1), tf.float32), tf.TensorSpec((), tf.int32)))
+        ds = ds.apply(tf.data.experimental.assert_cardinality(len(groups[split])))
+        ds = ds.cache()
+        if split == "train":
+            ds = ds.shuffle(min(len(groups[split]), 128), seed=42)
+        return ds.batch(batch_size).prefetch(1)
+
+    class Progress(tf.keras.callbacks.Callback):
+        def on_epoch_end(self, epoch, logs=None):
+            log(f"Epoch {epoch + 1}/{epochs} | " + " | ".join(
+                f"{key}: {value:.4f}" for key, value in (logs or {}).items()))
+
+    model = build_model()
+    model.summary(print_fn=lambda text: log(text))
+    checkpoint = output / "model.keras"
+    frequencies = np.bincount([r['label'] for r in groups['train']], minlength=5)
+    weights = {i: float(len(groups['train']) / (5 * frequencies[i])) for i in range(5)} if balanced else None
+    log('Class weights: ' + str(weights))
+    history = model.fit(dataset("train"), validation_data=dataset("val"), epochs=epochs,
+                        verbose=0, shuffle=False, class_weight=weights, callbacks=[Progress(), tf.keras.callbacks.ModelCheckpoint(
+                            str(checkpoint), monitor="val_loss", save_best_only=True)])
+    model = tf.keras.models.load_model(checkpoint, safe_mode=True)
+    test_loss, test_acc = model.evaluate(dataset("test"), verbose=0)
+    scores = model.predict(dataset("test"), verbose=0)
+    truth = [r["label"] for r in groups["test"]]
+    pred = scores.argmax(axis=1)
+    metrics = {"test_loss": float(test_loss), "test_accuracy": float(test_acc),
+               "balanced_accuracy": float(balanced_accuracy_score(truth, pred)),
+               "majority_baseline_accuracy": float(np.mean(np.asarray(truth) == np.argmax(frequencies))),
+               "confusion_matrix": confusion_matrix(truth, pred, labels=list(range(5))).tolist(),
+               "classification_report": classification_report(truth, pred, labels=list(range(5)),
+                   target_names=LABELS, output_dict=True, zero_division=0)}
+    serial_history = {key: [float(v) for v in values] for key, values in history.history.items()}
+    meta = {"schema": 1, "trained": True, "labels": LABELS, "preprocessing": PREPROCESS,
+            "architecture": "paper_cnn", "clinical_validated": False,
+            "created_utc": datetime.now(timezone.utc).isoformat(), "seed": 42,
+            "epochs_requested": epochs, "batch_size": batch_size,
+            "best_epoch": int(np.argmin(serial_history["val_loss"])) + 1,
+            "optimizer": "Adam", "learning_rate": 0.001,
+            "class_weights": weights,
+            "manifest_sha256": digest(manifest),
+            "training_seconds": time.monotonic() - started,
+            "platform": platform.platform(),
+            "python": platform.python_version(),
+            "devices": [d.name for d in tf.config.list_physical_devices()],
+            "selection": "minimum validation loss", "tensorflow": tf.__version__,
+            "counts": {s: len(r) for s, r in groups.items()},
+            "patient_counts": {s: len({r['patient_id'] for r in rs}) for s, rs in groups.items()},
+            "model_sha256": digest(checkpoint), "metrics": metrics}
+    for name, data in (("history.json", serial_history), ("metrics.json", metrics),
+                       ("data_audit.json", [{**r, "path": Path(os.path.relpath(r["path"], Path(manifest).resolve().parent)).as_posix()} for r in rows])):
+        (output / name).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+    for ax, metric, title in zip(axes, ("accuracy", "loss"), ("Accuracy", "Loss")):
+        for key, label in ((metric, "Training"), ("val_" + metric, "Validation")):
+            ax.plot(range(1, epochs + 1), serial_history[key], label=label)
+        ax.set(title=title, xlabel="Epoch")
+        ax.legend()
+    fig.tight_layout()
+    fig.savefig(output / "training_curves.png", dpi=150)
+    plt.close(fig)
+    # Written last so interrupted training is not treated as a complete bundle.
+    (output / "metadata.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    log(f"Finished. Held-out test accuracy: {test_acc:.4f}. Model: {output}")
+    return output
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train the paper CNN for BI-RADS 1–5")
+    parser.add_argument("--manifest", required=True)
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--balanced", action="store_true")
+    args = parser.parse_args()
+    train(args.manifest, args.output, args.epochs, args.batch_size, balanced=args.balanced)
+
+
+===== train_resnet.py =====
+"""Frozen ImageNet ResNet50 features and a trained classifier on patient-disjoint data."""
+import argparse
+import json
+import os
+from pathlib import Path
+import platform
+import time
+os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL','2')
+import numpy as np
+from core import LABELS, PREPROCESS, digest, preprocess, read_manifest
+
+
+def train_resnet(manifest, output, epochs=40, log=print):
+    if not 1 <= epochs <= 200:
+        raise ValueError('Epochs must be between 1 and 200.')
+    started=time.monotonic()
+    rows=read_manifest(manifest)
+    output=Path(output)
+    if output.exists() and any(output.iterdir()):
+        raise ValueError('Output folder must be empty.')
+    output.mkdir(parents=True,exist_ok=True)
+    import tensorflow as tf
+    from tensorflow import keras
+    from sklearn.metrics import classification_report,confusion_matrix,balanced_accuracy_score
+    keras.utils.set_random_seed(42)
+    tf.config.experimental.enable_op_determinism()
+    base=keras.applications.ResNet50(include_top=False,weights='imagenet',pooling='avg')
+    base.trainable=False
+    inp=keras.Input((224,224,1),name='gray_normalized')
+    x=keras.layers.Concatenate()([inp,inp,inp])
+    x=keras.layers.Rescaling(255.0)(x)
+    # For grayscale R=G=B, reversing to BGR does not change the values.
+    x=keras.layers.Normalization(mean=[103.939,116.779,123.68],variance=[1.,1.,1.])(x)
+    features=base(x,training=False)
+    extractor=keras.Model(inp,features,name='frozen_resnet50')
+    groups={s:[r for r in rows if r['split']==s] for s in ('train','val','test')}
+    feature_arrays={}
+    for split in ('train','val'):
+        feature_arrays[split]=extract(extractor,groups[split],split,log)
+    head=keras.Sequential([keras.Input((2048,)),keras.layers.Dense(128,activation='relu'),
+                           keras.layers.Dropout(0.5),keras.layers.Dense(5,activation='softmax')],name='birads_head')
+    head.compile(optimizer=keras.optimizers.Adam(0.0003),loss='sparse_categorical_crossentropy',metrics=['accuracy'])
+    labels={s:np.asarray([r['label'] for r in groups[s]]) for s in groups}
+    counts=np.bincount(labels['train'],minlength=5)
+    weights={i:float(len(labels['train'])/(5*counts[i])) for i in range(5)}
+    class Progress(keras.callbacks.Callback):
+        def on_epoch_end(self,epoch,logs=None):
+            log(f'Epoch {epoch+1}/{epochs} | '+ ' | '.join(f'{k}: {v:.4f}' for k,v in logs.items()))
+    history=head.fit(feature_arrays['train'],labels['train'],validation_data=(feature_arrays['val'],labels['val']),
+                     epochs=epochs,batch_size=16,class_weight=weights,verbose=0,
+                     callbacks=[Progress(),keras.callbacks.ModelCheckpoint(str(output/'head.keras'),monitor='val_loss',save_best_only=True)])
+    head=keras.models.load_model(output/'head.keras',safe_mode=True)
+    full=keras.Model(inp,head(features),name='resnet50_birads')
+    full.save(output/'model.keras')
+    feature_arrays['test']=extract(extractor,groups['test'],'test',log)
+    loss,acc=head.evaluate(feature_arrays['test'],labels['test'],verbose=0)
+    scores=head.predict(feature_arrays['test'],verbose=0)
+    pred=scores.argmax(axis=1)
+    metrics={'test_loss':float(loss),'test_accuracy':float(acc),
+             'balanced_accuracy':float(balanced_accuracy_score(labels['test'],pred)),
+             'majority_baseline_accuracy':float(np.mean(labels['test']==np.argmax(counts))),
+             'confusion_matrix':confusion_matrix(labels['test'],pred,labels=list(range(5))).tolist(),
+             'classification_report':classification_report(labels['test'],pred,labels=list(range(5)),target_names=LABELS,output_dict=True,zero_division=0)}
+    hist={k:[float(v) for v in vs] for k,vs in history.history.items()}
+    meta={'schema':1,'trained':True,'labels':LABELS,'preprocessing':PREPROCESS,
+          'architecture':'resnet50_imagenet_frozen_dense128_dropout05','clinical_validated':False,
+          'seed':42,'epochs_requested':epochs,'batch_size':16,'best_epoch':int(np.argmin(hist['val_loss']))+1,
+          'selection':'minimum validation loss','optimizer':'Adam','learning_rate':0.0003,
+          'class_weights':weights,'tensorflow':tf.__version__,'python':platform.python_version(),
+          'platform':platform.platform(),'devices':[d.name for d in tf.config.list_physical_devices()],
+          'training_seconds':time.monotonic()-started,'model_sha256':digest(output/'model.keras'),
+          'manifest_sha256':digest(manifest),'metrics':metrics,
+          'counts':{s:len(rs) for s,rs in groups.items()},
+          'patient_counts':{s:len({r['patient_id'] for r in rs}) for s,rs in groups.items()}}
+    for name,data in [('metrics.json',metrics),('history.json',hist),('data_audit.json',[{**r, 'path': Path(os.path.relpath(r['path'], Path(manifest).resolve().parent)).as_posix()} for r in rows])]:
+        (output/name).write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf-8')
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    fig,axes=plt.subplots(1,2,figsize=(10,4))
+    for ax,metric,title in zip(axes,['accuracy','loss'],['Accuracy','Loss']):
+        ax.plot(range(1,epochs+1),hist[metric],label='Training')
+        ax.plot(range(1,epochs+1),hist['val_'+metric],label='Validation')
+        ax.set(title=title,xlabel='Epoch');ax.legend()
+    fig.tight_layout();fig.savefig(output/'training_curves.png',dpi=150);plt.close(fig)
+    (output/'metadata.json').write_text(json.dumps(meta,ensure_ascii=False,indent=2),encoding='utf-8')
+    log(json.dumps(metrics,indent=2))
+
+
+def extract(model,rows,split,log=print):
+    values=[]
+    for start in range(0,len(rows),8):
+        batch=np.stack([preprocess(r['path']) for r in rows[start:start+8]])
+        values.append(np.asarray(model(batch,training=False)))
+        if start%80==0: log(f'{split}: feature extraction {start}/{len(rows)}')
+    return np.concatenate(values)
+
+
+if __name__=='__main__':
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--manifest',required=True)
+    parser.add_argument('--output',required=True)
+    parser.add_argument('--epochs',type=int,default=40)
+    args=parser.parse_args()
+    train_resnet(args.manifest,args.output,args.epochs)
+
+
+===== improve_model.py =====
+"""Validation-only selection of regularized softmax heads on frozen ResNet50 features."""
+import argparse
+import json
+import os
+from pathlib import Path
+os.environ.setdefault('TF_CPP_MIN_LOG_LEVEL', '2')
+import numpy as np
+from core import LABELS, digest, load_bundle, read_manifest
+from train_resnet import extract
+
+
+def improve(manifest, source, output):
+    from tensorflow import keras
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.metrics import log_loss, accuracy_score, balanced_accuracy_score, confusion_matrix, classification_report
+    output = Path(output)
+    if output.exists() and any(output.iterdir()):
+        raise ValueError('Output folder must be empty.')
+    output.mkdir(parents=True, exist_ok=True)
+    rows = read_manifest(manifest)
+    model, meta = load_bundle(source)
+    if meta.get('architecture') != 'resnet50_imagenet_frozen_dense128_dropout05':
+        raise ValueError('Source must be the frozen ResNet50 dense-head bundle.')
+    inp = keras.Input((224, 224, 1), name="gray_normalized")
+    feature_tensor = inp
+    for layer in model.layers[1:-1]:
+        feature_tensor = layer([feature_tensor] * 3) if isinstance(layer, keras.layers.Concatenate) else layer(feature_tensor, training=False)
+    extractor = keras.Model(inp, feature_tensor)
+    groups = {s: [r for r in rows if r['split'] == s] for s in ('train', 'val', 'test')}
+    features = {s: extract(extractor, groups[s], s) for s in ('train', 'val')}
+    labels = {s: np.array([r['label'] for r in groups[s]]) for s in groups}
+    scaler = StandardScaler().fit(features['train'])
+    x = {s: scaler.transform(features[s]) for s in features}
+    candidates = []
+    best = None
+    for c in (0.001, 0.01, 0.1, 1.0, 10.0):
+        for weight in (None, 'balanced'):
+            head = LogisticRegression(C=c, class_weight=weight, max_iter=2000, random_state=42)
+            head.fit(x['train'], labels['train'])
+            probabilities = head.predict_proba(x['val'])
+            record = {'C': c, 'class_weight': weight, 'validation_loss': float(log_loss(labels['val'], probabilities)),
+                      'validation_accuracy': float(accuracy_score(labels['val'], probabilities.argmax(1)))}
+            candidates.append(record)
+            print(record, flush=True)
+            if best is None or record['validation_loss'] < best[0]['validation_loss']:
+                best = (record, head)
+    record, head = best
+    # Fold the fitted standardization into one Dense layer for portable inference.
+    dense = keras.layers.Dense(5, activation='softmax', name='regularized_softmax')
+    full = keras.Model(extractor.input, dense(extractor.output), name='resnet50_regularized')
+    kernel = head.coef_.T / scaler.scale_[:, None]
+    bias = head.intercept_ - scaler.mean_ @ kernel
+    dense.set_weights([kernel.astype('float32'), bias.astype('float32')])
+    actual = np.asarray(dense(features['val']))
+    np.testing.assert_allclose(actual, head.predict_proba(x['val']), atol=2e-5)
+    print('Saving model bundle...', flush=True)
+    full.save(output / 'model.keras')
+    print('Model saved.', flush=True)
+    # The selected configuration is fixed before extracting/evaluating test features.
+    test = extract(extractor, groups['test'], 'test')
+    probabilities = np.asarray(dense(test))
+    pred = probabilities.argmax(1)
+    truth = labels['test']
+    metrics = {'test_loss': float(log_loss(truth, probabilities)),
+               'test_accuracy': float(accuracy_score(truth, pred)),
+               'balanced_accuracy': float(balanced_accuracy_score(truth, pred)),
+               'majority_baseline_accuracy': float(np.mean(truth == np.bincount(labels['train']).argmax())),
+               'confusion_matrix': confusion_matrix(truth, pred, labels=list(range(5))).tolist(),
+               'classification_report': classification_report(truth, pred, labels=list(range(5)), target_names=LABELS, output_dict=True, zero_division=0)}
+    meta = {k:v for k,v in meta.items() if k not in ('epochs_requested','best_epoch','batch_size','optimizer','learning_rate','class_weights','training_seconds')}
+    meta.update(architecture='resnet50_imagenet_frozen_regularized_softmax', selection='minimum validation cross-entropy across ten regularized heads',
+                selected_configuration=record, candidates=candidates, metrics=metrics, model_sha256=digest(output/'model.keras'),
+                manifest_sha256=digest(manifest), exploratory=True)
+    for name, value in [('metrics.json',metrics),('selection.json',candidates),('metadata.json',meta)]:
+        (output/name).write_text(json.dumps(value,indent=2),encoding='utf-8')
+    print(json.dumps(metrics, indent=2), flush=True)
+
+
+if __name__ == '__main__':
+    p=argparse.ArgumentParser()
+    p.add_argument('--manifest',default='data/manifest.csv')
+    p.add_argument('--source',default='models/cdd_cesm_resnet50')
+    p.add_argument('--output',default='models/cdd_cesm_regularized')
+    a=p.parse_args()
+    improve(a.manifest,a.source,a.output)
+
+
+===== prepare_cdd.py =====
+"""Split expert-labeled CDD-CESM DM images at patient level.
+
+python prepare_cdd.py --archive ../../work/cdd-cesm.zip --annotations data/cdd_cesm/annotations.xlsx
+Only matching DM images are read; programs inside the archive are never executed.
+"""
+import argparse
+from collections import Counter, defaultdict
+import csv
+import hashlib
+import json
+from pathlib import Path
+import zipfile
+
+import numpy as np
+import openpyxl
+from sklearn.model_selection import StratifiedGroupKFold
+from core import digest, preprocess, read_manifest
+
+
+def prepare(archive, annotations):
+    root = Path(__file__).resolve().parent
+    target = root / 'data' / 'cdd_cesm'
+    images = target / 'images'
+    images.mkdir(parents=True, exist_ok=True)
+    workbook = openpyxl.load_workbook(annotations, read_only=True, data_only=True)
+    values = list(workbook['all'].values)
+    source = [dict(zip(values[0], row)) for row in values[1:]]
+    rows, excluded = [], []
+    with zipfile.ZipFile(archive) as z:
+        image_index = {}
+        for name in z.namelist():
+            if Path(name).suffix.lower() not in {'.jpg', '.jpeg', '.png'}:
+                continue
+            stem = Path(name).stem.replace(' ', '')
+            if '_DM_' not in stem:
+                continue
+            if stem in image_index:
+                raise ValueError('Duplicate filename in archive: ' + stem)
+            image_index[stem] = name
+        for row in source:
+            if row['Type'] != 'DM':
+                continue
+            name, label = row['Image_name'].replace(' ', ''), row['BIRADS']
+            # Do not arbitrarily reduce multiple findings to one label.
+            if not isinstance(label, (int, float)) or label not in range(1, 6):
+                excluded.append({'image':name, 'source_label':str(label), 'reason':'ambiguous_or_out_of_scope_label'})
+                continue
+            if name not in image_index:
+                raise ValueError('Missing image: ' + name)
+            member = image_index[name]
+            path = images / (name + Path(member).suffix.lower())
+            if not path.exists():
+                path.write_bytes(z.read(member))
+            pixels = preprocess(path)
+            rows.append({'path':str(path.relative_to(root / 'data')).replace('\\','/'),
+                         'birads':int(label), 'patient_id':str(row['Patient_ID']),
+                         'pixel_hash':hashlib.sha256(pixels.tobytes()).hexdigest()})
+    by_hash = defaultdict(list)
+    for row in rows:
+        by_hash[row['pixel_hash']].append(row)
+    accepted = []
+    for duplicates in by_hash.values():
+        if len(duplicates) > 1:
+            for row in duplicates:
+                excluded.append({'image':Path(row['path']).stem, 'reason':'duplicate_processed_pixels'})
+        else:
+            accepted.extend(duplicates)
+    accepted.sort(key=lambda r: r['path'])
+    labels = np.asarray([r['birads'] for r in accepted])
+    groups = np.asarray([r['patient_id'] for r in accepted])
+    folds = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=42)
+    for fold, (_, indices) in enumerate(folds.split(np.zeros(len(accepted)), labels, groups)):
+        split = 'test' if fold == 0 else ('val' if fold == 1 else 'train')
+        for i in indices:
+            accepted[i]['split'] = split
+    manifest = root / 'data' / 'manifest.csv'
+    with manifest.open('w', encoding='utf-8', newline='') as stream:
+        writer = csv.DictWriter(stream, fieldnames=['path','birads','patient_id','split'], extrasaction='ignore')
+        writer.writeheader()
+        writer.writerows(accepted)
+    read_manifest(manifest)
+    report = {'dataset':'CDD-CESM v1', 'modality':'DM (low-energy CESM)',
+              'source':'https://www.cancerimagingarchive.net/collection/cdd-cesm/',
+              'image_download_mirror':'https://www.kaggle.com/datasets/hanaraafatt/cdd-cesm/versions/1',
+              'annotations_source':'https://www.cancerimagingarchive.net/wp-content/uploads/Radiology-manual-annotations.xlsx',
+              'license':'CC BY 4.0', 'access_date':'2026-10-19',
+              'archive_sha256':digest(archive), 'annotations_sha256':digest(annotations),
+              'split_method':'StratifiedGroupKFold(5, shuffle=True, random_state=42); fold0 test, fold1 val, folds2-4 train',
+              'source_dm_count':sum(r['Type']=='DM' for r in source), 'used_count':len(accepted),
+              'used_patients':len(set(groups)), 'excluded':excluded,
+              'splits':{s:{'images':sum(r['split']==s for r in accepted),
+                           'patients':len({r['patient_id'] for r in accepted if r['split']==s}),
+                           'class_counts':dict(Counter(r['birads'] for r in accepted if r['split']==s))}
+                        for s in ('train','val','test')}}
+    (target/'preparation_report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+    print(json.dumps({k:v for k,v in report.items() if k!='excluded'},ensure_ascii=False,indent=2))
+    print('Excluded:',len(excluded))
+    return manifest
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--archive', required=True)
+    parser.add_argument('--annotations', required=True)
+    args = parser.parse_args()
+    prepare(args.archive, args.annotations)
+
+
+===== test_application.py =====
+"""Regression checks for data boundaries, model integrity and the desktop workflow."""
+import csv
+import json
+from pathlib import Path
+import tempfile
+import time
+import unittest
+from unittest.mock import patch
+import numpy as np
+from PIL import Image
+from core import preprocess, read_manifest, load_bundle
+
+ROOT=Path(__file__).resolve().parent
+
+class DataChecks(unittest.TestCase):
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory()
+        self.root=Path(self.temp.name)
+        rng=np.random.default_rng(42)
+        self.rows=[]
+        for split in ('train','val','test'):
+            for label in range(1,6):
+                path=self.root/f'{split}_{label}.png'
+                Image.fromarray(rng.integers(0,256,(48,64),dtype=np.uint8)).save(path)
+                self.rows.append(dict(path=path.name,birads=label,patient_id=f'{split}_{label}',split=split))
+    def tearDown(self):
+        self.temp.cleanup()
+    def manifest(self,rows):
+        p=self.root/'manifest.csv'
+        with p.open('w',newline='') as f:
+            w=csv.DictWriter(f,fieldnames=['path','birads','patient_id','split']);w.writeheader();w.writerows(rows)
+        return p
+    def test_shape_and_label_mapping(self):
+        a=preprocess(self.root/self.rows[0]['path'])
+        self.assertEqual(a.shape,(224,224,1));self.assertEqual(a.dtype,np.float32)
+        self.assertTrue(0<=a.min()<=a.max()<=1)
+        self.assertEqual([r['label'] for r in read_manifest(self.manifest(self.rows))[:5]],list(range(5)))
+    def test_patient_overlap(self):
+        self.rows[5]['patient_id']=self.rows[0]['patient_id']
+        with self.assertRaisesRegex(ValueError,'patient occurs'):
+            read_manifest(self.manifest(self.rows))
+    def test_duplicate_file(self):
+        with self.assertRaisesRegex(ValueError,'same file'):
+            read_manifest(self.manifest(self.rows+[self.rows[0]]))
+    def test_duplicate_pixels(self):
+        (self.root/self.rows[5]['path']).write_bytes((self.root/self.rows[0]['path']).read_bytes())
+        with self.assertRaisesRegex(ValueError,'Duplicate processed'):
+            read_manifest(self.manifest(self.rows))
+    def test_invalid_label(self):
+        self.rows[0]['birads']=6
+        with self.assertRaisesRegex(ValueError,'1–5'):
+            read_manifest(self.manifest(self.rows))
+    def test_missing_class(self):
+        with self.assertRaisesRegex(ValueError,'Missing'):
+            read_manifest(self.manifest(self.rows[:-1]))
+    def test_empty_manifest(self):
+        with self.assertRaisesRegex(ValueError,'CSV is empty'):
+            read_manifest(self.manifest([]))
+    def test_integrity_rejection(self):
+        from core import LABELS,PREPROCESS
+        (self.root/'model.keras').write_bytes(b'invalid')
+        meta=dict(schema=1,labels=LABELS,preprocessing=PREPROCESS,trained=True,model_sha256='incorrect')
+        (self.root/'metadata.json').write_text(json.dumps(meta))
+        with self.assertRaisesRegex(ValueError,'integrity'):
+            load_bundle(self.root)
+
+class DesktopChecks(unittest.TestCase):
+    @unittest.skipUnless((ROOT/'models/cdd_cesm_regularized/model.keras').is_file() and any((ROOT/'examples').glob('BIRADS_1_*.jpg')), 'Local model and examples required')
+    def test_real_prediction_and_export(self):
+        from app import App
+        a=App();a.withdraw()
+        def settle():
+            deadline=time.monotonic()+120
+            while time.monotonic()<deadline:
+                a.update()
+                if not a.busy:return
+                time.sleep(.03)
+            self.fail('Background operation timed out')
+        try:
+            a.load_default();settle()
+            self.assertIsNotNone(a.model)
+            self.assertEqual(a.title(),'MammoScope | BI-RADS research application')
+            image=next((ROOT/'examples').glob('BIRADS_1_*.jpg'))
+            with patch('app.filedialog.askopenfilename',return_value=str(image)):
+                a.choose_image()
+            self.assertEqual(str(a.predict_button['state']),'disabled')
+            a.confirmed.set(True);a.refresh();a.run_prediction();settle()
+            self.assertIsNotNone(a.result)
+            self.assertEqual(len(a.result['scores']),5)
+            self.assertAlmostEqual(sum(a.result['scores'].values()),1,places=5)
+            with tempfile.TemporaryDirectory() as temp:
+                target=Path(temp)/'prediction.json'
+                with patch('app.filedialog.asksaveasfilename',return_value=str(target)):
+                    a.export_result()
+                self.assertEqual(json.loads(target.read_text())['label'],a.result['label'])
+        finally:
+            a.destroy()
+
+if __name__=='__main__':
+    unittest.main(verbosity=2)
+
+
+===== requirements.txt =====
+tensorflow==2.20.0
+opencv-python-headless==4.12.0.88
+numpy==2.2.6
+scikit-learn==1.7.2
+Pillow==11.3.0
+matplotlib==3.10.6
+openpyxl==3.1.5
+
+
+===== SETUP.ps1 =====
+$ErrorActionPreference = 'Stop'
+Set-Location -LiteralPath $PSScriptRoot
+if (!(Test-Path '.venv/Scripts/python.exe')) {
+    if (!(Get-Command py -ErrorAction SilentlyContinue)) {
+        throw 'Install Python 3.12 with the Windows Python launcher, then run SETUP.ps1 again.'
+    }
+    py -3.12 -m venv .venv
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the Python 3.12 environment.' }
+}
+& '.venv/Scripts/python.exe' -m ensurepip
+if ($LASTEXITCODE -ne 0) { throw 'Could not initialize pip.' }
+& '.venv/Scripts/python.exe' -m pip install -r requirements.txt
+if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
+Write-Host 'Setup complete. Open START.cmd to launch MammoScope.'
+
+
+===== START.cmd =====
+@echo off
+cd /d "%~dp0"
+if not exist ".venv\Scripts\pythonw.exe" (
+  echo Python environment missing. Run SETUP.ps1 first.
+  pause
+  exit /b 1
+)
+start "MammoScope" ".venv\Scripts\pythonw.exe" app.py

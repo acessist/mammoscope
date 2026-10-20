@@ -1,0 +1,412 @@
+{
+  "dataset": "CDD-CESM v1",
+  "modality": "DM (low-energy CESM)",
+  "source": "https://www.cancerimagingarchive.net/collection/cdd-cesm/",
+  "image_download_mirror": "https://www.kaggle.com/datasets/hanaraafatt/cdd-cesm/versions/1",
+  "annotations_source": "https://www.cancerimagingarchive.net/wp-content/uploads/Radiology-manual-annotations.xlsx",
+  "license": "CC BY 4.0",
+  "access_date": "2026-10-19",
+  "archive_sha256": "e40c19f06014536040bf6aa764b54fcd557e0b294ba406d064520af02c573896",
+  "annotations_sha256": "9feef3e38a2b826b3bd75fe85b991f65c21b10e4c3d043b13041c4ef69105345",
+  "split_method": "StratifiedGroupKFold(5, shuffle=True, random_state=42); fold0 test, fold1 val, folds2-4 train",
+  "source_dm_count": 1003,
+  "used_count": 931,
+  "used_patients": 316,
+  "excluded": [
+    {
+      "image": "P2_R_DM_CC",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P2_R_DM_MLO",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P25_L_DM_MLO",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P67_R_DM_MLO",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P73_R_DM_CC",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P73_R_DM_MLO",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P85_R_DM_MLO",
+      "source_label": "6",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P93_L_DM_CC",
+      "source_label": "5$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P93_L_DM_MLO",
+      "source_label": "5$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P113_L_DM_CC",
+      "source_label": "5$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P113_L_DM_MLO",
+      "source_label": "5$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P121_L_DM_CC",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P141_L_DM_CC",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P141_L_DM_MLO",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P153_R_DM_MLO",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P153_L_DM_CC",
+      "source_label": "3$2$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P153_L_DM_MLO",
+      "source_label": "3$2$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P156_R_DM_CC",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P156_R_DM_MLO",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P156_L_DM_CC",
+      "source_label": "6",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P156_L_DM_MLO",
+      "source_label": "6",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P161_L_DM_CC",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P161_L_DM_MLO",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P165_R_DM_CC",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P165_R_DM_MLO",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P165_L_DM_CC",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P165_L_DM_MLO",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P174_L_DM_CC",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P174_L_DM_MLO",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P186_L_DM_CC",
+      "source_label": "2$4",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P186_L_DM_MLO",
+      "source_label": "2$4",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P191_R_DM_CC",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P191_R_DM_MLO",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P195_L_DM_CC",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P195_L_DM_MLO",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P201_R_DM_MLO",
+      "source_label": "6",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P202_L_DM_CC",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P202_L_DM_MLO",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P233_L_DM_CC",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P233_L_DM_MLO",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P255_R_DM_CC",
+      "source_label": "2$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P255_R_DM_MLO",
+      "source_label": "2$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P255_L_DM_CC",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P255_L_DM_MLO",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P269_L_DM_CC",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P269_L_DM_MLO",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P274_L_DM_CC",
+      "source_label": "5$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P274_L_DM_MLO",
+      "source_label": "5$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P292_R_DM_CC",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P292_R_DM_MLO",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P294_R_DM_CC",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P294_R_DM_MLO",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P301_L_DM_CC",
+      "source_label": "5$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P301_L_DM_MLO",
+      "source_label": "5$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P309_R_DM_CC",
+      "source_label": "2$3",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P309_R_DM_MLO",
+      "source_label": "2$3",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P311_R_DM_CC",
+      "source_label": "5$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P311_R_DM_MLO",
+      "source_label": "5$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P311_L_DM_CC",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P311_L_DM_MLO",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P313_R_DM_CC",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P313_R_DM_MLO",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P313_L_DM_CC",
+      "source_label": "5$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P313_L_DM_MLO",
+      "source_label": "5$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P316_R_DM_CC",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P316_R_DM_MLO",
+      "source_label": "4$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P316_L_DM_CC",
+      "source_label": "5$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P316_L_DM_MLO",
+      "source_label": "5$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P319_R_DM_CC",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P319_R_DM_MLO",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P325_R_DM_CC",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    },
+    {
+      "image": "P325_R_DM_MLO",
+      "source_label": "3$2",
+      "reason": "ambiguous_or_out_of_scope_label"
+    }
+  ],
+  "splits": {
+    "train": {
+      "images": 558,
+      "patients": 190,
+      "class_counts": {
+        "2": 98,
+        "1": 227,
+        "3": 59,
+        "4": 109,
+        "5": 65
+      }
+    },
+    "val": {
+      "images": 186,
+      "patients": 63,
+      "class_counts": {
+        "5": 25,
+        "2": 31,
+        "1": 70,
+        "4": 34,
+        "3": 26
+      }
+    },
+    "test": {
+      "images": 187,
+      "patients": 63,
+      "class_counts": {
+        "1": 74,
+        "3": 22,
+        "2": 36,
+        "4": 29,
+        "5": 26
+      }
+    }
+  }
+}

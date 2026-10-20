@@ -1,0 +1,9 @@
+{
+  "folder": "cdd_cesm_regularized",
+  "selection": "minimum validation cross-entropy",
+  "candidate_validation_losses": {
+    "cdd_cesm_cnn": 1.5969146490097046,
+    "cdd_cesm_resnet50": 1.5517947673797607,
+    "cdd_cesm_regularized": 1.4666217140461326
+  }
+}
