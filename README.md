@@ -32,13 +32,3 @@ Dataset preparation records are in data/cdd_cesm/preparation_report.json; model 
 ```
 
 Model bundles use SHA-256 integrity checks, known input/output shapes and a fixed preprocessing identifier. Only load models from trusted sources; a checksum does not establish who created a model.
-
-## Dataset source and attribution
-
-[CDD-CESM v1 (TCIA)](https://www.cancerimagingarchive.net/collection/cdd-cesm/) is distributed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Cite [Khaled et al., dataset (2021)](https://doi.org/10.7937/29kw-ae92), [Khaled et al. (2022)](https://doi.org/10.1038/s41597-022-01238-0) and [Clark et al. (2013)](https://doi.org/10.1007/s10278-013-9622-7).
-
-Images came from the [Kaggle mirror](https://www.kaggle.com/datasets/hanaraafatt/cdd-cesm/versions/1); annotations came from [TCIA](https://www.cancerimagingarchive.net/wp-content/uploads/Radiology-manual-annotations.xlsx). The subset uses 931 low-energy DM images from 316 patients, excluding multiple-valued labels and BI-RADS 6. Filenames have spaces removed; images are converted to grayscale, resized to 224 by 224 and divided by 255. Providers do not endorse this application. Training, validation and test partitions are patient-disjoint. Evaluation is exploratory, not external clinical validation.
-
-```powershell
-.venv/Scripts/python.exe prepare_cdd.py --archive PATH_TO_ARCHIVE.zip --annotations PATH_TO_ANNOTATIONS.xlsx
-```
