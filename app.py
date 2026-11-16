@@ -99,7 +99,7 @@ class App(tk.Tk):
         self.train_button.pack(side="left")
         self.log_box = tk.Text(training, height=14, bg="#132f41", fg="#e5f1f4", font=("Consolas", 10), wrap="word", state="disabled")
         self.log_box.pack(fill="both", expand=True, pady=(14, 0))
-        self.append_log("See data/cdd_cesm/preparation_report.json for data preparation and RESULTS.md for experiment results.")
+        self.append_log("See data/cdd_cesm/preparation_report.json for data preparation and models/cdd_cesm_regularized/metrics.json for experiment results.")
         info = tk.Text(about, wrap="word", font=("Segoe UI", 11), bg="#eef3f7", relief="flat")
         info.pack(fill="both", expand=True)
         info.insert("1.0", (ROOT / "README.md").read_text(encoding="utf-8"))
