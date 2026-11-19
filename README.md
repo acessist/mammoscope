@@ -2,8 +2,6 @@
 
 MammoScope is a student project about using deep learning to classify mammogram images. The idea is simple: an image is loaded into a desktop app, and the model predicts one of five BI-RADS categories.
 
-This repository shares the code and experiment results so people can understand the project. It is not a ready-to-install release. The training images and trained model files are not included.
-
 ## What the app does
 
 The app shows the uploaded mammogram, a predicted BI-RADS category from 1 to 5, and a score for each category. It can also save the result as a JSON file. Images are processed on the computer.
